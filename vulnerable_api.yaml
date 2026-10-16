@@ -1,0 +1,77 @@
+openapi: 3.0.3
+info:
+  title: Orders API (intentionally insecure sample)
+  version: 1.0.0
+  description: >
+    A deliberately flawed specification used by the specguard test suite and
+    the README example. Do not deploy an API that looks like this.
+servers:
+  - url: http://api.example.com/v1
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: OK
+  /orders:
+    get:
+      summary: List orders for a customer
+      parameters:
+        - name: customer_id
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: api_key
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+    post:
+      summary: Create an order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_id:
+                  type: string
+                quantity:
+                  type: integer
+      responses:
+        "201":
+          description: Created
+  /orders/{id}:
+    delete:
+      summary: Cancel an order
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+    legacyKey:
+      type: apiKey
+      in: query
+      name: key
+    basicAuth:
+      type: http
+      scheme: basic

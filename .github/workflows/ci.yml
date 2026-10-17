@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - run: pip install -r requirements.txt
+      - name: Unit tests
+        run: python -m unittest -v
+      - name: Byte-compile
+        run: python -m py_compile specguard.py test_specguard.py
+
+  self-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Confirm the sample still produces findings
+        run: |
+          python specguard.py vulnerable_api.yaml --fail-on never > /dev/null
+          python specguard.py vulnerable_api.yaml --format sarif --fail-on never > specguard.sarif
+      - name: Upload SARIF to code scanning
+        if: github.event_name == 'push'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: specguard.sarif
+          category: specguard-sample

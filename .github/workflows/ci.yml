@@ -52,8 +52,16 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements.txt
-      - name: Lint the sample spec to SARIF
-        run: python specguard.py vulnerable_api.yaml --format sarif --fail-on never > specguard.sarif
+      - name: The intentionally vulnerable sample must still produce findings
+        run: |
+          set +e
+          python specguard.py vulnerable_api.yaml > /dev/null
+          test $? -eq 1
+      # Only the secure reference spec is uploaded. vulnerable_api.yaml is a
+      # test fixture, and uploading it would show its deliberate flaws as
+      # open alerts in the Security tab.
+      - name: Lint the secure reference spec (must have zero findings)
+        run: python specguard.py secure_api.yaml --format sarif --fail-on low > specguard.sarif
       - name: Upload SARIF to code scanning
         if: github.event_name == 'push'
         uses: github/codeql-action/upload-sarif@v4

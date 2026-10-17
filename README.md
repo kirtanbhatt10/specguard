@@ -67,6 +67,18 @@ $ echo $?
 
 Findings are sorted by severity, so the most urgent problems come first.
 
+`secure_api.yaml` is the same API with every finding fixed, with a comment
+next to each fix naming the rule it resolves. specguard reports no findings
+for it:
+
+```text
+$ python3 specguard.py secure_api.yaml
+specguard: no findings.
+```
+
+CI uploads the scan of `secure_api.yaml`, not the vulnerable sample, to
+GitHub code scanning, so the Security tab stays clean.
+
 ## Installation
 
 Python 3.9 or newer is required.

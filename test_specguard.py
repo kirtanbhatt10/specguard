@@ -236,6 +236,16 @@ class SampleSpecTests(unittest.TestCase):
         spec = specguard.load_spec(HERE / "vulnerable_api.yaml")
         self.assertEqual(set(rule_ids(spec)), set(specguard.RULES))
 
+    def test_secure_reference_has_no_findings(self):
+        spec = specguard.load_spec(HERE / "secure_api.yaml")
+        self.assertEqual(specguard.audit(spec), [])
+
+    def test_secure_reference_covers_every_sample_operation(self):
+        def operations(name):
+            return {(p, m) for p, m, _, _ in specguard._operations(specguard.load_spec(HERE / name))}
+
+        self.assertEqual(operations("secure_api.yaml"), operations("vulnerable_api.yaml"))
+
 
 class AnonymousAccessTests(unittest.TestCase):
     def test_optional_security_object_is_flagged(self):

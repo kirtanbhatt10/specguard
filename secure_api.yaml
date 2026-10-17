@@ -1,0 +1,156 @@
+openapi: 3.0.3
+info:
+  title: Orders API (secure reference)
+  version: 1.0.0
+  description: >
+    The same API as vulnerable_api.yaml with every specguard finding fixed.
+    specguard reports zero findings for this file, and CI uploads its scan to
+    GitHub code scanning. Compare the two files to see how each rule is
+    resolved.
+servers:
+  # SG002: HTTPS only.
+  - url: https://api.example.com/v1
+# SG001: every operation requires a bearer token unless it says otherwise.
+security:
+  - bearerAuth: []
+paths:
+  /health:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: OK
+  /auth/login:
+    post:
+      summary: Exchange a username and password for a session
+      # SG001: login cannot use a session token yet, so it requires a
+      # client key sent in a header instead of being fully anonymous.
+      security:
+        - clientKey: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                password:
+                  type: string
+                  format: password
+              # SG005: no undeclared fields.
+              additionalProperties: false
+      responses:
+        "200":
+          description: OK
+        "401":
+          $ref: "#/components/responses/Error"
+        # SG006: throttling is part of the contract.
+        "429":
+          description: Too many attempts
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /orders:
+    get:
+      summary: List orders for a customer
+      # SG003: the credential travels in the Authorization header, not the URL.
+      parameters:
+        - name: customer_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: OK
+        # SG007: errors return a generic body with a correlation ID.
+        "500":
+          $ref: "#/components/responses/Error"
+    post:
+      summary: Create an order
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                item_id:
+                  type: string
+                quantity:
+                  type: integer
+              additionalProperties: false
+      responses:
+        "201":
+          description: Created
+  /orders/{id}/notes:
+    post:
+      summary: Attach a note to an order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderNote"
+      responses:
+        "201":
+          description: Created
+  /orders/{id}:
+    delete:
+      summary: Cancel an order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: Deleted
+components:
+  schemas:
+    OrderNote:
+      type: object
+      properties:
+        note:
+          type: string
+      additionalProperties: false
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+        correlation_id:
+          type: string
+      additionalProperties: false
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  # SG004: bearer tokens and a header API key; no Basic auth, no query keys.
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+    clientKey:
+      type: apiKey
+      in: header
+      name: X-Client-Key

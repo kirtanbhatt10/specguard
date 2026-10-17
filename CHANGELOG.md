@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- `secure_api.yaml`: the sample API with every finding fixed, and tests that it stays clean and covers the same operations.
+
+### Changed
+- CI uploads the scan of `secure_api.yaml` to code scanning instead of the intentionally vulnerable sample, which closes the 11 demo alerts. CI still checks that the vulnerable sample produces findings.
+
 ## 0.2.0
 
 ### Added

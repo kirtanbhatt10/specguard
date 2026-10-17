@@ -123,10 +123,10 @@ permissions:
 
 jobs:
   specguard:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - run: pip install git+https://github.com/kirtanbhatt10/specguard.git
@@ -134,7 +134,7 @@ jobs:
         run: specguard api/openapi.yaml --format sarif --fail-on never > specguard.sarif
       - name: Upload SARIF
         if: github.event_name == 'push'
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         with:
           sarif_file: specguard.sarif
       - name: Fail the build on high severity findings

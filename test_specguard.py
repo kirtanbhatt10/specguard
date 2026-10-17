@@ -1,5 +1,6 @@
 """Tests for specguard. Run with: python -m unittest -v"""
 
+import copy
 import json
 import os
 import tempfile
@@ -325,6 +326,40 @@ class VerboseErrorTests(unittest.TestCase):
             "content": {"application/json": {"schema": {"type": "object", "properties": {"stack": {}}}}},
         }
         self.assertNotIn("SG007", rule_ids(spec))
+
+
+class MalformedInputTests(unittest.TestCase):
+    """Malformed specs must never crash the linter; they just yield fewer findings."""
+
+    WEIRD = (None, 0, 1.5, True, "text", [], {}, [1, None], {"$ref": 5}, {"$ref": "#/missing"})
+
+    def _mutations(self):
+        def walk(node, path=()):
+            if path:
+                yield path
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    yield from walk(value, path + (key,))
+            elif isinstance(node, list):
+                for index, value in enumerate(node):
+                    yield from walk(value, path + (index,))
+
+        base = specguard.load_spec(HERE / "vulnerable_api.yaml")
+        for path in walk(base):
+            for weird in self.WEIRD:
+                spec = copy.deepcopy(base)
+                target = spec
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = copy.deepcopy(weird)
+                yield path, weird, spec
+
+    def test_type_swapped_nodes_never_crash(self):
+        for path, weird, spec in self._mutations():
+            with self.subTest(path=path, value=weird):
+                findings = specguard.audit(spec)
+                specguard.format_text(findings)
+                specguard.format_sarif(findings, "spec.yaml")
 
 
 class SarifAndLoaderTests(unittest.TestCase):

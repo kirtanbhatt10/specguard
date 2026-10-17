@@ -134,6 +134,16 @@ def _resolve(spec: dict[str, Any], node: Any) -> dict[str, Any] | None:
     return None
 
 
+def _as_dict(value: Any) -> dict:
+    """Return value if it is a mapping, else an empty dict (malformed input)."""
+    return value if isinstance(value, dict) else {}
+
+
+def _as_list(value: Any) -> list:
+    """Return value if it is a list, else an empty list (malformed input)."""
+    return value if isinstance(value, list) else []
+
+
 def _operations(spec: dict[str, Any]) -> Iterator[tuple[str, str, dict, dict]]:
     """Yield (path, method, operation, path_item) for every operation."""
     paths = spec.get("paths")
@@ -217,7 +227,7 @@ def check_credentials_in_query(spec: dict[str, Any]) -> list[Finding]:
     """SG003: a credential-like parameter is passed in the query string."""
     findings = []
     for path, method, operation, path_item in _operations(spec):
-        raw = list(path_item.get("parameters") or []) + list(operation.get("parameters") or [])
+        raw = _as_list(path_item.get("parameters")) + _as_list(operation.get("parameters"))
         for raw_parameter in raw:
             parameter = _resolve(spec, raw_parameter)
             if parameter is None:
@@ -244,7 +254,7 @@ def check_insecure_schemes(spec: dict[str, Any]) -> list[Finding]:
     findings = []
     components = spec.get("components")
     schemes = components.get("securitySchemes") if isinstance(components, dict) else None
-    for name, scheme in (schemes or {}).items():
+    for name, scheme in _as_dict(schemes).items():
         if not isinstance(scheme, dict):
             continue
         if scheme.get("type") == "apiKey" and scheme.get("in") == "query":
@@ -286,7 +296,7 @@ def check_mass_assignment(spec: dict[str, Any]) -> list[Finding]:
         body = _resolve(spec, operation.get("requestBody"))
         if body is None:
             continue
-        for media in (body.get("content") or {}).values():
+        for media in _as_dict(body.get("content")).values():
             schema = _resolve(spec, media.get("schema")) if isinstance(media, dict) else None
             if schema is None:
                 continue
@@ -323,7 +333,7 @@ def check_rate_limiting(spec: dict[str, Any]) -> list[Finding]:
     for path, method, operation, _ in _operations(spec):
         if not AUTH_PATH.search(path):
             continue
-        responses = operation.get("responses") or {}
+        responses = _as_dict(operation.get("responses"))
         if "429" in {str(code) for code in responses}:
             continue
         findings.append(
@@ -383,7 +393,7 @@ def check_verbose_errors(spec: dict[str, Any]) -> list[Finding]:
             if response is None:
                 continue
             hits: set[str] = set()
-            for media in (response.get("content") or {}).values():
+            for media in _as_dict(response.get("content")).values():
                 if isinstance(media, dict):
                     hits |= _scan_leaks(spec, media)
             if hits:

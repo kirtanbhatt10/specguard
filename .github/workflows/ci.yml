@@ -12,8 +12,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
+      fail-fast: false
       matrix:
-        python-version: ["3.9", "3.12"]
+        python-version: ["3.9", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -22,21 +23,37 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Unit tests
         run: python -m unittest -v
-      - name: Byte-compile
-        run: python -m py_compile specguard.py test_specguard.py
 
-  self-check:
+  package:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -r requirements.txt
-      - name: Confirm the sample still produces findings
+      - name: Install the package and run the console command
         run: |
-          python specguard.py vulnerable_api.yaml --fail-on never > /dev/null
-          python specguard.py vulnerable_api.yaml --format sarif --fail-on never > specguard.sarif
+          pip install .
+          specguard --version
+          cd /tmp
+          specguard "$GITHUB_WORKSPACE/vulnerable_api.yaml" --fail-on never > /dev/null
+          set +e
+          specguard "$GITHUB_WORKSPACE/vulnerable_api.yaml" > /dev/null
+          test $? -eq 1
+
+  self-check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r requirements.txt
+      - name: Lint the sample spec to SARIF
+        run: python specguard.py vulnerable_api.yaml --format sarif --fail-on never > specguard.sarif
       - name: Upload SARIF to code scanning
         if: github.event_name == 'push'
         uses: github/codeql-action/upload-sarif@v3

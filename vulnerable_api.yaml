@@ -17,6 +17,15 @@ paths:
       responses:
         "200":
           description: OK
+  /auth/login:
+    post:
+      summary: Exchange a username and password for a session
+      security: []
+      responses:
+        "200":
+          description: OK
+        "401":
+          description: Invalid credentials
   /orders:
     get:
       summary: List orders for a customer
@@ -34,6 +43,17 @@ paths:
       responses:
         "200":
           description: OK
+        "500":
+          description: Internal error
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  stack:
+                    type: string
     post:
       summary: Create an order
       requestBody:
@@ -47,6 +67,24 @@ paths:
                   type: string
                 quantity:
                   type: integer
+      responses:
+        "201":
+          description: Created
+  /orders/{id}/notes:
+    post:
+      summary: Attach a note to an order
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderNote"
       responses:
         "201":
           description: Created
@@ -64,6 +102,12 @@ paths:
         "204":
           description: Deleted
 components:
+  schemas:
+    OrderNote:
+      type: object
+      properties:
+        note:
+          type: string
   securitySchemes:
     bearerAuth:
       type: http

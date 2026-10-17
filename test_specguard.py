@@ -4,6 +4,7 @@ import json
 import os
 import tempfile
 import unittest
+import unittest.mock
 from contextlib import redirect_stdout
 from io import StringIO
 from pathlib import Path
@@ -136,10 +137,39 @@ class MassAssignmentTests(unittest.TestCase):
     def test_closed_request_object_is_not_flagged(self):
         self.assertNotIn("SG005", rule_ids(clean_spec()))
 
-    def test_referenced_schema_is_skipped(self):
+    def test_unresolvable_schema_reference_is_skipped(self):
         spec = clean_spec()
         content = spec["paths"]["/orders"]["post"]["requestBody"]["content"]
+        content["application/json"]["schema"] = {"$ref": "#/components/schemas/Missing"}
+        self.assertNotIn("SG005", rule_ids(spec))
+
+    def test_resolvable_open_reference_is_flagged(self):
+        spec = clean_spec()
+        spec["components"]["schemas"] = {"Order": {"type": "object", "properties": {"x": {"type": "string"}}}}
+        content = spec["paths"]["/orders"]["post"]["requestBody"]["content"]
         content["application/json"]["schema"] = {"$ref": "#/components/schemas/Order"}
+        self.assertIn("SG005", rule_ids(spec))
+
+    def test_resolvable_closed_reference_is_not_flagged(self):
+        spec = clean_spec()
+        spec["components"]["schemas"] = {
+            "Order": {"type": "object", "properties": {"x": {"type": "string"}}, "additionalProperties": False}
+        }
+        content = spec["paths"]["/orders"]["post"]["requestBody"]["content"]
+        content["application/json"]["schema"] = {"$ref": "#/components/schemas/Order"}
+        self.assertNotIn("SG005", rule_ids(spec))
+
+    def test_additional_properties_schema_is_flagged(self):
+        spec = clean_spec()
+        schema = spec["paths"]["/orders"]["post"]["requestBody"]["content"]["application/json"]["schema"]
+        schema["additionalProperties"] = {"type": "string"}
+        self.assertIn("SG005", rule_ids(spec))
+
+    def test_reference_cycle_does_not_crash(self):
+        spec = clean_spec()
+        spec["components"]["schemas"] = {"A": {"$ref": "#/components/schemas/A"}}
+        content = spec["paths"]["/orders"]["post"]["requestBody"]["content"]
+        content["application/json"]["schema"] = {"$ref": "#/components/schemas/A"}
         self.assertNotIn("SG005", rule_ids(spec))
 
 
@@ -203,10 +233,128 @@ class LoaderAndCliTests(unittest.TestCase):
 class SampleSpecTests(unittest.TestCase):
     def test_sample_triggers_every_rule(self):
         spec = specguard.load_spec(HERE / "vulnerable_api.yaml")
-        self.assertEqual(
-            set(rule_ids(spec)),
-            {"SG001", "SG002", "SG003", "SG004", "SG005"},
-        )
+        self.assertEqual(set(rule_ids(spec)), set(specguard.RULES))
+
+
+class AnonymousAccessTests(unittest.TestCase):
+    def test_optional_security_object_is_flagged(self):
+        spec = clean_spec()
+        spec["paths"]["/orders"]["get"]["security"] = [{}]
+        self.assertIn("SG001", rule_ids(spec))
+
+    def test_optional_security_alongside_scheme_is_flagged(self):
+        spec = clean_spec()
+        spec["paths"]["/orders"]["get"]["security"] = [{}, {"bearerAuth": []}]
+        self.assertIn("SG001", rule_ids(spec))
+
+
+class HostMatchTests(unittest.TestCase):
+    def test_localhost_lookalike_host_is_flagged(self):
+        spec = clean_spec(servers=[{"url": "http://localhost.attacker.example/v1"}])
+        self.assertIn("SG002", rule_ids(spec))
+
+    def test_ipv6_loopback_is_allowed(self):
+        spec = clean_spec(servers=[{"url": "http://[::1]:8000"}])
+        self.assertNotIn("SG002", rule_ids(spec))
+
+
+class ReferencedParameterTests(unittest.TestCase):
+    def test_referenced_credential_parameter_is_flagged(self):
+        spec = clean_spec()
+        spec["components"]["parameters"] = {
+            "ApiKey": {"name": "api_key", "in": "query", "schema": {"type": "string"}}
+        }
+        spec["paths"]["/orders"]["get"]["parameters"] = [{"$ref": "#/components/parameters/ApiKey"}]
+        self.assertIn("SG003", rule_ids(spec))
+
+
+class RateLimitTests(unittest.TestCase):
+    def _login(self, responses):
+        spec = clean_spec()
+        spec["paths"]["/auth/login"] = {
+            "post": {"security": [], "responses": responses}
+        }
+        return spec
+
+    def test_login_without_429_is_flagged(self):
+        spec = self._login({"200": {"description": "ok"}})
+        findings = [f for f in specguard.audit(spec) if f.rule_id == "SG006"]
+        self.assertEqual([f.location for f in findings], ["POST /auth/login"])
+
+    def test_login_with_429_is_not_flagged(self):
+        spec = self._login({"200": {"description": "ok"}, "429": {"description": "slow down"}})
+        self.assertNotIn("SG006", rule_ids(spec))
+
+    def test_ordinary_paths_containing_auth_words_are_not_flagged(self):
+        spec = clean_spec()
+        spec["paths"]["/authors"] = {"get": {"responses": {"200": {"description": "ok"}}}}
+        spec["paths"]["/tokens"] = {"get": {"responses": {"200": {"description": "ok"}}}}
+        self.assertNotIn("SG006", rule_ids(spec))
+
+
+class VerboseErrorTests(unittest.TestCase):
+    def _with_error(self, schema=None, example=None):
+        spec = clean_spec()
+        media = {}
+        if schema is not None:
+            media["schema"] = schema
+        if example is not None:
+            media["example"] = example
+        spec["paths"]["/orders"]["get"]["responses"]["500"] = {
+            "description": "error",
+            "content": {"application/json": media},
+        }
+        return spec
+
+    def test_stack_field_in_error_schema_is_flagged(self):
+        schema = {"type": "object", "properties": {"stack": {"type": "string"}}}
+        self.assertIn("SG007", rule_ids(self._with_error(schema=schema)))
+
+    def test_traceback_in_error_example_is_flagged(self):
+        example = "Traceback (most recent call last): File app.py line 3"
+        self.assertIn("SG007", rule_ids(self._with_error(example=example)))
+
+    def test_generic_error_body_is_not_flagged(self):
+        schema = {"type": "object", "properties": {"message": {"type": "string"}}}
+        self.assertNotIn("SG007", rule_ids(self._with_error(schema=schema)))
+
+    def test_success_response_is_not_checked(self):
+        spec = clean_spec()
+        spec["paths"]["/orders"]["get"]["responses"]["200"] = {
+            "description": "ok",
+            "content": {"application/json": {"schema": {"type": "object", "properties": {"stack": {}}}}},
+        }
+        self.assertNotIn("SG007", rule_ids(spec))
+
+
+class SarifAndLoaderTests(unittest.TestCase):
+    def test_sarif_document_has_expected_shape(self):
+        findings = specguard.audit(specguard.load_spec(HERE / "vulnerable_api.yaml"))
+        log = json.loads(specguard.format_sarif(findings, "api/openapi.yaml"))
+        self.assertEqual(log["version"], "2.1.0")
+        run = log["runs"][0]
+        self.assertEqual(run["tool"]["driver"]["name"], "specguard")
+        self.assertEqual({r["id"] for r in run["tool"]["driver"]["rules"]}, set(specguard.RULES))
+        self.assertEqual(len(run["results"]), len(findings))
+        first = run["results"][0]
+        self.assertEqual(first["level"], "error")
+        uri = first["locations"][0]["physicalLocation"]["artifactLocation"]["uri"]
+        self.assertEqual(uri, "api/openapi.yaml")
+
+    def test_cli_sarif_output_is_valid_json(self):
+        buffer = StringIO()
+        with redirect_stdout(buffer):
+            code = specguard.main([str(HERE / "vulnerable_api.yaml"), "--format", "sarif", "--fail-on", "never"])
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(buffer.getvalue())["version"], "2.1.0")
+
+    def test_oversized_spec_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "big.yaml"
+            path.write_text("openapi: 3.0.3\n", encoding="utf-8")
+            with unittest.mock.patch.object(specguard, "MAX_SPEC_BYTES", 4):
+                with self.assertRaises(ValueError):
+                    specguard.load_spec(path)
 
 
 if __name__ == "__main__":

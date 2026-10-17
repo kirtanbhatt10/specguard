@@ -1,0 +1,22 @@
+# Changelog
+
+## 0.2.0
+
+### Added
+- SARIF 2.1.0 output (`--format sarif`) for GitHub code scanning.
+- SG006: authentication endpoints (login, token, password reset) that do not document a 429 response.
+- SG007: error responses whose schema or example exposes stack traces or internal fields.
+- Local `$ref` resolution for parameters, request bodies, schemas and responses. External references are still skipped.
+- `pyproject.toml` packaging with a `specguard` console command.
+- GitHub Actions workflow: unit tests on Python 3.9 and 3.12, plus a SARIF upload.
+
+### Fixed
+- `security: [{}]` (optional authentication) is now reported by SG001. It was previously treated as protected.
+- SG002 compares the parsed host exactly. `http://localhost.attacker.example` is no longer treated as local.
+- SG005 flags `additionalProperties` set to a schema, not only to `true`, and treats an absent keyword as open, per the OpenAPI default.
+- Reference cycles and non-object nodes no longer crash the rules.
+- Specification files larger than 20 MB are refused before parsing.
+
+## 0.1.0
+
+- Initial release with SG001 to SG005.
